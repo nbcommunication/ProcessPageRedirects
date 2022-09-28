@@ -30,7 +30,7 @@ class ProcessPageRedirects extends ProcessPageEdit {
 			'page' => [
 				'parent' => 'page',
 				'name' => 'redirects',
-				'title' => 'Redirects',
+				'title' => 'Page Redirects',
 			],
 		];
 	}
