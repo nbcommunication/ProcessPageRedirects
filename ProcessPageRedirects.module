@@ -68,7 +68,7 @@ class ProcessPageRedirects extends ProcessPageEdit {
 			$home = $this->wire()->pages->get(1);
 			return array_merge([$this->getRow($home)], $this->getChildRows($home));
 		}) as $index => $row) {
-			$table->row(array_merge([$index], $row));
+			$table->row(array_merge([$index + 1], $row));
 		}
 
 		return $table->render();
