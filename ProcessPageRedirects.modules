@@ -1,0 +1,244 @@
+<?php namespace ProcessWire;
+
+/**
+ * Process Page Redirects
+ *
+ * #pw-summary Provides a interface for viewing and managing redirects for all page editors.
+ *
+ * @copyright 2022 NB Communication Ltd
+ *
+ */
+
+class ProcessPageRedirects extends ProcessPageEdit {
+
+	/**
+	 * getModuleInfo is a module required by all modules to tell ProcessWire about them
+	 *
+	 * @return array
+	 *
+	 */
+	public static function getModuleInfo() {
+
+		return [
+			'title' => 'Process Page Redirects',
+			'summary' => 'Provides a interface for viewing and managing redirects for all page editors.',
+			'version' => 100,
+			'author' => 'Chris Thomson (NB Communication)',
+			'icon' => 'share',
+			'permission' => 'page-edit',
+			'requires' => 'ProcessWire>=3.0.165,PHP>=7.3',
+			'page' => [
+				'parent' => 'page',
+				'name' => 'redirects',
+				'title' => 'Redirects',
+			],
+		];
+	}
+
+	/**
+	 * Initialize the module
+	 *
+	 */
+	public function init() {
+
+	}
+
+	/**
+	 * List the pages
+	 *
+	 * @return string
+	 * @throws WireException
+	 *
+	 */
+	public function execute() {
+
+		$this->headline($this->_('Page Redirects'));
+
+		$table = $this->wire()->modules->get('MarkupAdminDataTable');
+		$table->setEncodeEntities(false);
+		$table->headerRow([
+			wireIconMarkup('sort-numeric-asc'),
+			$this->_('ID'),
+			$this->_('Title'),
+			$this->_('URL'),
+			$this->_('Redirects'),
+		]);
+
+		foreach($this->wire()->cache->getFor($this, 'pages.' . $this->wire()->user->id, WireCache::expireSave, function() {
+			$home = $this->wire()->pages->get(1);
+			return array_merge([$this->getRow($home)], $this->getChildRows($home));
+		}) as $index => $row) {
+			$table->row(array_merge([$index], $row));
+		}
+
+		return $table->render();
+	}
+
+	/**
+	 * Edit a page
+	 *
+	 * @return string
+	 * @throws WireException
+	 *
+	 */
+	public function executeEdit() {
+
+		$id = $this->wire()->input->get->int('id');
+		if($id) {
+
+			$page = $this->wire()->pages->get($id);
+			if($page->id && $page->editable()) {
+
+				$this->headline(sprintf($this->_('Edit Redirects: %s'), $page->title));
+
+				$action = "./edit?id=$page->id";
+
+				$form = $this->wire(new InputfieldForm());
+				$form->attr('id', $this->className);
+				$form->action($action);
+
+				// We are using ProcessPageEdit::buildFormPrevPaths
+				// which needs the following to work correctly
+				$this->config = $this->wire()->config;
+				$this->input = $this->wire()->input;
+				$this->modules = $this->wire()->modules;
+				$this->sanitizer = $this->wire()->sanitizer;
+				$this->input->get->renderInputfieldAjax = 'ProcessPageEditPrevPaths';
+				$this->page = $page;
+				$this->form = $form;
+				$this->isPost = $this->input->post->count();
+				$field = $this->buildFormPrevPaths();
+
+				if($this->isPost) {
+					// Save the page quietly and clear the cache
+					// then reload to get around the AJAX loading we aren't using
+					$page->of(false);
+					$this->wire()->pages->___save($page, ['quiet' => true]);
+					$this->wire()->cache->maintenance();
+					$this->wire()->session->redirect($action);
+				} else {
+					$field->collapsed = Inputfield::collapsedNo;
+					$form->add($field);
+				}
+
+				foreach([
+					[
+						'InputfieldButton',
+						$this->_('Back'),
+						'arrow-circle-left',
+						['href' => './'],
+						['ui-priority-secondary'],
+					],
+					[
+						'InputfieldSubmit',
+						$this->_('Save'),
+						'save',
+					]
+				] as $item) {
+					$btn = $this->modules->get($item[0]);
+					$btn->attr('name+id', $this->wire()->sanitizer->pageName($item[1]));
+					$btn->icon = $item[2];
+					$btn->value = $item[1];
+					foreach($item[3] ?? [] as $key => $value) {
+						$btn->set($key, $value);
+					}
+					$btn->addClass(array_merge(['head_button_clone'], $item[4] ?? []));
+					$form->add($btn);
+				}
+
+				return $form->render();
+			}
+		}
+
+		$this->wire()->session->redirect('./');
+	}
+
+	/**
+	 * Return the child table rows from a given page
+	 *
+	 * @param Page $page
+	 * @return array
+	 *
+	 */
+	private function getChildRows(Page $page) {
+		$rows = [];
+		foreach($page->children('include=all,id>999') as $child) {
+			if(!$child->viewable()) continue;
+			$rows[] = $this->getRow($child);
+			if($child->numChildren) {
+				$rows = array_merge($rows, $this->getChildRows($child));
+			}
+		}
+		return $rows;
+	}
+
+	/**
+	 * Return a table row from a given page
+	 *
+	 * @param Page $page
+	 * @return array
+	 *
+	 */
+	private function getRow(Page $page) {
+
+		return $this->wire()->cache->getFor($this, "page$page->id." . $this->wire()->user->id, "id=$page->id", function() use ($page) {
+
+			$style = [];
+			if($page->isHidden()) $style[] = 'opacity:0.6';
+			if($page->isUnpublished()) $style[] = 'text-decoration:line-through';
+			$style = count($style) ? implode(';', $style) : false;
+
+			$urls = $page->urls;
+			if(($index = array_search($page->url, $urls)) !== false) {
+				unset($urls[$index]);
+			}
+
+			$c = count($urls);
+
+			return array_map(function($item) {
+				if(is_array($item)) {
+					$attributes = [];
+					foreach(array_merge(['href' => $item[0], 'title' => $item[2]], $item[3] ?? []) as $key => $value) {
+						if($value !== false) {
+							$attributes[] = "$key='$value'";
+						}
+					}
+					$attributes = implode(' ', $attributes);
+					return "<a $attributes>{$item[1]}</a>";
+				}
+				return $item;
+			}, [
+				$page->id,
+				[
+					$page->editURL,
+					$page->title,
+					$this->_('Edit this page'),
+					['target' => '_blank', 'style' => $style],
+				],
+				[
+					$page->url,
+					$page->url,
+					$this->_('View this page'),
+					['target' => '_blank'],
+				],
+				$page->editable() ? [
+					"./edit?id=$page->id",
+					$c,
+					implode("\n", array_merge([$this->_('Manage the redirects for this page')], $urls)),
+				] : $c,
+			]);
+		});
+	}
+
+	/**
+	 * Module config
+	 *
+	 * @param array $data
+	 * @return InputfieldWrapper
+	 * @throws WireException
+	 *
+	 */
+	public function getModuleConfigInputfields(array $data) {
+		return $this->wire(new InputfieldWrapper());
+	}
+}
