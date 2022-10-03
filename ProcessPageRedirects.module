@@ -22,7 +22,7 @@ class ProcessPageRedirects extends ProcessPageEdit {
 		return [
 			'title' => 'Process Page Redirects',
 			'summary' => 'Provides a interface for viewing and managing redirects for all page editors.',
-			'version' => 100,
+			'version' => 101,
 			'author' => 'Chris Thomson (NB Communication)',
 			'icon' => 'share',
 			'permission' => 'page-edit',
@@ -228,6 +228,23 @@ class ProcessPageRedirects extends ProcessPageEdit {
 				] : $c,
 			]);
 		});
+	}
+
+	// Ensure other ProcessPageEdit execute* methods are not reachable
+	public function ___executeTemplate() {
+		$this->wire()->session->redirect('./');
+	}
+
+	public function ___executeSaveTemplate() {
+		$this->wire()->session->redirect('./');
+	}
+
+	public function ___executeNavJSON(array $options = array()) {
+		return '';
+	}
+
+	public function ___executeBookmarks() {
+		$this->wire()->session->redirect('./');
 	}
 
 	/**
