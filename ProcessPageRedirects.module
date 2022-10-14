@@ -22,7 +22,7 @@ class ProcessPageRedirects extends ProcessPageEdit {
 		return [
 			'title' => 'Process Page Redirects',
 			'summary' => 'Provides a interface for viewing and managing redirects for all page editors.',
-			'version' => 101,
+			'version' => 102,
 			'author' => 'Chris Thomson (NB Communication)',
 			'icon' => 'share',
 			'permission' => 'page-edit',
@@ -64,10 +64,7 @@ class ProcessPageRedirects extends ProcessPageEdit {
 			$this->_('Redirects'),
 		]);
 
-		foreach($this->wire()->cache->getFor($this, 'pages.' . $this->wire()->user->id, WireCache::expireSave, function() {
-			$home = $this->wire()->pages->get(1);
-			return array_merge([$this->getRow($home)], $this->getChildRows($home));
-		}) as $index => $row) {
+		foreach($this->getPages() as $index => $row) {
 			$table->row(array_merge([$index + 1], $row));
 		}
 
@@ -154,6 +151,24 @@ class ProcessPageRedirects extends ProcessPageEdit {
 	}
 
 	/**
+	 * Return the pages visible to this user
+	 *
+	 * @return PageArray
+	 *
+	 */
+	private function getPages() {
+		return $this->wire()->cache->getFor(
+			$this,
+			'pages.' . $this->wire()->user->id,
+			WireCache::expireSave,
+			function() use ($data) {
+				$home = $this->wire()->pages->get(1);
+				return array_merge([$this->getRow($home)], $this->getChildRows($home));
+			}
+		);
+	}
+
+	/**
 	 * Return the child table rows from a given page
 	 *
 	 * @param Page $page
@@ -181,53 +196,58 @@ class ProcessPageRedirects extends ProcessPageEdit {
 	 */
 	private function getRow(Page $page) {
 
-		return $this->wire()->cache->getFor($this, "page$page->id." . $this->wire()->user->id, "id=$page->id", function() use ($page) {
+		return $this->wire()->cache->getFor(
+			$this,
+			"page$page->id." . $this->wire()->user->id,
+			"id=$page->id",
+			function() use ($page) {
 
-			$style = [];
-			if($page->isHidden()) $style[] = 'opacity:0.6';
-			if($page->isUnpublished()) $style[] = 'text-decoration:line-through';
-			$style = count($style) ? implode(';', $style) : false;
+				$style = [];
+				if($page->isHidden()) $style[] = 'opacity:0.6';
+				if($page->isUnpublished()) $style[] = 'text-decoration:line-through';
+				$style = count($style) ? implode(';', $style) : false;
 
-			$urls = $page->urls;
-			if(($index = array_search($page->url, $urls)) !== false) {
-				unset($urls[$index]);
-			}
-
-			$c = count($urls);
-
-			return array_map(function($item) {
-				if(is_array($item)) {
-					$attributes = [];
-					foreach(array_merge(['href' => $item[0], 'title' => $item[2]], $item[3] ?? []) as $key => $value) {
-						if($value !== false) {
-							$attributes[] = "$key='$value'";
-						}
-					}
-					$attributes = implode(' ', $attributes);
-					return "<a $attributes>{$item[1]}</a>";
+				$urls = $page->urls;
+				if(($index = array_search($page->url, $urls)) !== false) {
+					unset($urls[$index]);
 				}
-				return $item;
-			}, [
-				$page->id,
-				[
-					$page->editURL,
-					$page->title,
-					$this->_('Edit this page'),
-					['target' => '_blank', 'style' => $style],
-				],
-				[
-					$page->url,
-					$page->url,
-					$this->_('View this page'),
-					['target' => '_blank'],
-				],
-				$page->editable() ? [
-					"./edit?id=$page->id",
-					$c,
-					implode("\n", array_merge([$this->_('Manage the redirects for this page')], $urls)),
-				] : $c,
-			]);
-		});
+
+				$c = count($urls);
+
+				return array_map(function($item) {
+					if(is_array($item)) {
+						$attributes = [];
+						foreach(array_merge(['href' => $item[0], 'title' => $item[2]], $item[3] ?? []) as $key => $value) {
+							if($value !== false) {
+								$attributes[] = "$key='$value'";
+							}
+						}
+						$attributes = implode(' ', $attributes);
+						return "<a $attributes>{$item[1]}</a>";
+					}
+					return $item;
+				}, [
+					$page->id,
+					[
+						$page->editURL,
+						$page->title,
+						$this->_('Edit this page'),
+						['target' => '_blank', 'style' => $style],
+					],
+					[
+						$page->url,
+						$page->url,
+						$this->_('View this page'),
+						['target' => '_blank'],
+					],
+					$page->editable() ? [
+						"./edit?id=$page->id",
+						$c,
+						implode("\n", array_merge([$this->_('Manage the redirects for this page')], $urls)),
+					] : $c,
+				]);
+			}
+		);
 	}
 
 	// Ensure other ProcessPageEdit execute* methods are not reachable
@@ -257,5 +277,23 @@ class ProcessPageRedirects extends ProcessPageEdit {
 	 */
 	public function getModuleConfigInputfields(array $data) {
 		return $this->wire(new InputfieldWrapper());
+	}
+
+	/**
+	 * Install ProcessPageRedirects
+	 *
+	 */
+	public function ___install() {
+		parent::___install();
+		$this->getPages();
+	}
+
+	/**
+	 * Uninstall ProcessPageRedirects
+	 *
+	 */
+	public function ___uninstall() {
+		parent::___uninstall();
+		$this->wire()->cache->deleteFor($this);
 	}
 }
