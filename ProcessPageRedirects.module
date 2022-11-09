@@ -22,7 +22,7 @@ class ProcessPageRedirects extends ProcessPageEdit {
 		return [
 			'title' => 'Process Page Redirects',
 			'summary' => 'Provides a interface for viewing and managing redirects for all page editors.',
-			'version' => 102,
+			'version' => 103,
 			'author' => 'Chris Thomson (NB Communication)',
 			'icon' => 'share',
 			'permission' => 'page-edit',
@@ -255,7 +255,7 @@ class ProcessPageRedirects extends ProcessPageEdit {
 		$this->wire()->session->redirect('./');
 	}
 
-	public function ___executeSaveTemplate() {
+	public function ___executeSaveTemplate($template = null) {
 		$this->wire()->session->redirect('./');
 	}
 
