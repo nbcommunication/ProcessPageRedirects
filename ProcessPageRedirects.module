@@ -22,7 +22,7 @@ class ProcessPageRedirects extends Process {
 		return [
 			'title' => 'Process Page Redirects',
 			'summary' => 'Lists site redirects.',
-			'version' => 201,
+			'version' => 202,
 			'author' => 'Chris Thomson (NB Communication)',
 			'icon' => 'share',
 			'permission' => 'page-edit-redirects',
@@ -99,12 +99,11 @@ class ProcessPageRedirects extends Process {
 						foreach($query->fetchAll(\PDO::FETCH_ASSOC) as $row) {
 
 							$page = $pages->get($row['pages_id']);
-							if(!$page->id || !$page->viewable()) continue;
-							$label = $this->_('Edit this page');
+							if(!$page->id || !$page->viewable() || $page->isTrash()) continue;
 
 							$tr = [
 								$_test($row['path']),
-								"<a href=$page->editURL#ProcessPageEditSettings target=_blank title='$label'>$page->url</a>",
+								"<a href=$page->editURL#ProcessPageEditSettings target=_blank title='{$this->_('Edit this page')}'>$page->url</a>",
 							];
 
 							if($hasLanguagePageNames) {
@@ -128,7 +127,7 @@ class ProcessPageRedirects extends Process {
 						$headers[] = $this->_('Type');
 						$https = $config->https ? 'https' : 'http';
 
-						if(preg_match_all('/RewriteRule\s(.*?)\s(.*?)\s\[.*?R=(\d{3})\]/', $htaccess, $matches)) {
+						if(preg_match_all('/\sRewriteRule\s(.*?)\s(.*?)\s\[.*?R=(\d{3})\]/', $htaccess, $matches)) {
 
 							foreach($matches[0] as $index => $match) {
 
