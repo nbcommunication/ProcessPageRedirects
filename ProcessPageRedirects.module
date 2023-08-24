@@ -3,16 +3,13 @@
 /**
  * Process Page Redirects
  *
- * #pw-summary Lists the redirects enabled/created by the PagePathHistory module.
+ * #pw-summary Lists site redirects.
  *
  * @copyright 2023 NB Communication Ltd
  *
- * @todo See if htaccess can be parsed to produce a list of those redirects too
- * @todo Add a simple text filter to the table
- *
  */
 
-class ProcessPageRedirects extends ProcessPageEdit {
+class ProcessPageRedirects extends Process {
 
 	/**
 	 * getModuleInfo is a module required by all modules to tell ProcessWire about them
@@ -24,12 +21,12 @@ class ProcessPageRedirects extends ProcessPageEdit {
 
 		return [
 			'title' => 'Process Page Redirects',
-			'summary' => 'Lists the redirects enabled/created by the PagePathHistory module.',
+			'summary' => 'Lists site redirects.',
 			'version' => 200,
 			'author' => 'Chris Thomson (NB Communication)',
 			'icon' => 'share',
 			'permission' => 'page-edit-redirects',
-			'requires' => 'ProcessWire>=3.0.225,PHP>=8.1,PagePathHistory',
+			'requires' => 'ProcessWire>=3.0.225,PHP>=8.1',
 			'page' => [
 				'parent' => 'page',
 				'name' => 'redirects',
@@ -43,7 +40,7 @@ class ProcessPageRedirects extends ProcessPageEdit {
 	 *
 	 */
 	public function init() {
-
+		parent::init();
 	}
 
 	/**
@@ -55,50 +52,154 @@ class ProcessPageRedirects extends ProcessPageEdit {
 	 */
 	public function execute() {
 
+		$config = $this->wire()->config;
 		$database = $this->wire()->database;
-		$hasLanguagePageNames = $this->wire()->modules->isInstalled('LanguageSupportPageNames');
+		$modules = $this->wire()->modules;
+		$pages = $this->wire()->pages;
 
-		$th = [
+		$modules->get('JqueryWireTabs');
+		$id = $this->className;
+		$hasLanguagePageNames = $modules->isInstalled('LanguageSupportPageNames');
+
+		$this->headline($this->_('Page Redirects'));
+
+		// Headers
+		$defaultHeaders = [
 			$this->_('Redirect Path'),
 			$this->_('Destination'),
 		];
 
-		if($hasLanguagePageNames) {
-			$th[] = $this->_('Language');
-		}
+		$_test = function($url) {
+			$label = $this->_('Test this redirect');
+			return "<a href=$url target=_blank title='$label'>$url</a>";
+		};
 
-		$th[] = $this->_('Created');
+		$tabs = $this->wire(new InputfieldForm());
+		$tabs->attr('id', $id);
 
-		$table = $this->wire()->modules->get('MarkupAdminDataTable');
-		$table->setEncodeEntities(false);
-		$table->headerRow($th);
+		foreach([
+			'site' => $this->_('Site'),
+			'htaccess' => $this->_('htaccess'),
+		] as $key => $type) {
 
-		$query = $database->query("SELECT * FROM `page_path_history` ORDER BY `created` DESC");
+			$headers = $defaultHeaders;
+			$rows = [];
+			switch($key) {
+				case 'site':
 
-		$c = 0;
-		foreach($query->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+					if($modules->isInstalled('PagePathHistory')) {
 
-			$page = $this->wire()->pages->get($row['pages_id']);
-			if(!$page->id || !$page->viewable()) continue;
+						if($hasLanguagePageNames) {
+							$headers[] = $this->_('Language');
+						}
 
-			$tr = [
-				"<a href={$row['path']} target=_blank title='Test this redirect'>{$row['path']}</a>",
-				"<a href=$page->editURL#ProcessPageEditSettings target=_blank title='Edit this page'>$page->url</a>",
-			];
+						$headers[] = $this->_('Created');
 
-			if($hasLanguagePageNames) {
-				$tr[] = $this->wire()->languages->get($row['language_id'])->title;
+						$query = $database->query("SELECT * FROM `page_path_history` ORDER BY `created` DESC");
+						foreach($query->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+
+							$page = $pages->get($row['pages_id']);
+							if(!$page->id || !$page->viewable()) continue;
+							$label = $this->_('Edit this page');
+
+							$tr = [
+								$_test($row['path']),
+								"<a href=$page->editURL#ProcessPageEditSettings target=_blank title='$label'>$page->url</a>",
+							];
+
+							if($hasLanguagePageNames) {
+								$tr[] = $this->wire()->languages->get($row['language_id'])->title;
+							}
+
+							$ts = $row['created'];
+							$dt = strtotime($ts);
+							$tr[] = "<span hidden>{$dt}</span><span data-uk-tooltip='title:{$ts}'>{$this->wire()->datetime->relativeTimeStr($row['created'])}</span>";
+
+							$rows[] = $tr;
+						}
+					}
+
+					break;
+				case 'htaccess':
+
+					$htaccess = file_get_contents($config->paths->root . '.htaccess');
+					if(strpos($htaccess, 'RewriteRule') !== false) {
+
+						$headers[] = $this->_('Type');
+						$https = $config->https ? 'https' : 'http';
+
+						if(preg_match_all('/RewriteRule\s(.*?)\s(.*?)\s\[.*?R=(\d{3})\]/', $htaccess, $matches)) {
+
+							foreach($matches[0] as $index => $match) {
+
+								$path = rtrim(ltrim($matches[1][$index], '^'), '$');
+								if(substr($path, 0, 1) !== '/') {
+									$path = "/$path";
+								}
+
+								$url = $matches[2][$index];
+								// We only want rules that redirect to a httpHost url
+								foreach($config->httpHosts as $httpHost) {
+									if(strpos($url, $httpHost) === false) {
+										continue;
+									}
+								}
+
+								$rows[] = [
+									$_test($path),
+									str_replace(array_map(function($httpHost) use ($https) {
+										return "$https://$httpHost";
+									}, $config->httpHosts), '', $url),
+									$matches[3][$index],
+								];
+							}
+						}
+					}
+
+					break;
 			}
 
-			$tr[] = "<span data-uk-tooltip='title:{$this->wire()->datetime->relativeTimeStr($row['created'])}'>{$row['created']}</span>";
+			$c = count($rows);
 
-			$table->row($tr);
-			$c++;
+			$out = '';
+			if($c) {
+
+				$table = $modules->get('MarkupAdminDataTable');
+				$table->setEncodeEntities(false);
+				$table->headerRow($headers);
+				foreach($rows as $row) {
+					$table->row($row);
+				}
+				$out .= $table->render();
+
+			} else {
+
+				$out .= $this->_('There are no redirects to display.');
+			}
+
+			$tab = $this->wire(new InputfieldWrapper());
+			$tab->attr('title', "$type ($c)");
+			$tab->attr('name+id', "{$id}_{$type}");
+			$tab->attr('class', 'WireTab');
+
+			$tab->add([
+				'type' => 'text',
+				'name' => "{$id}_{$type}_filter",
+				'label' => $this->_('Filter Redirects'),
+				'placeholder' => $this->_('Start typing to filter the redirects'),
+				'class' => "$id-filter",
+			]);
+
+			$tab->add([
+				'type' => 'markup',
+				'name' => "{$id}_{$type}_contents",
+				'value' => $out,
+			]);
+
+			$tabs->add($tab);
 		}
 
-		$this->headline(sprintf($this->_('Page Redirects (%d)'), $c));
-
-		return $table->render();
+		return $tabs->render();
 	}
 
 	/**
