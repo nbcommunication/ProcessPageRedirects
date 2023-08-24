@@ -22,7 +22,7 @@ class ProcessPageRedirects extends Process {
 		return [
 			'title' => 'Process Page Redirects',
 			'summary' => 'Lists site redirects.',
-			'version' => 203,
+			'version' => 204,
 			'author' => 'Chris Thomson (NB Communication)',
 			'icon' => 'share',
 			'permission' => 'page-edit-redirects',
@@ -36,11 +36,111 @@ class ProcessPageRedirects extends Process {
 	}
 
 	/**
+	 * Are we using LanguageSupportPageNames?
+	 *
+	 * @var bool
+	 *
+	 */
+	protected $hasLanguagePageNames = false;
+
+	/**
+	 * Headers
+	 *
+	 * @var array
+	 *
+	 */
+	protected $headers = [];
+
+	/**
+	 * htaccess Redirects
+	 *
+	 * @var array
+	 *
+	 */
+	protected $redirectsHtaccess = [];
+
+	/**
+	 * PagePathHistory Redirects
+	 *
+	 * @var array
+	 *
+	 */
+	protected $redirectsSite = [];
+
+	/**
 	 * Initialize the module
 	 *
 	 */
 	public function init() {
+
 		parent::init();
+
+		$config = $this->wire()->config;
+		$modules = $this->wire()->modules;
+		$pages = $this->wire()->pages;
+
+		$this->hasLanguagePageNames = $modules->isInstalled('LanguageSupportPageNames');
+
+		$this->headers = [
+			$this->_('Redirect Path'),
+			$this->_('Destination'),
+			$this->_('Language'),
+			$this->_('Created'),
+			$this->_('Type'),
+		];
+
+		if($modules->isInstalled('PagePathHistory')) {
+
+			$query = $this->wire()->database->query("SELECT * FROM `page_path_history` ORDER BY `created` DESC");
+			foreach($query->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+
+				$page = $pages->get($row['pages_id']);
+				if(!$page->id || !$page->viewable() || $page->isTrash()) continue;
+
+				$this->redirectsSite[] = [
+					$row['path'],
+					$page->url,
+					$page->editURL,
+					$row['language_id'],
+					$row['created'],
+				];
+			}
+		}
+
+		$htaccess = file_get_contents($config->paths->root . '.htaccess');
+		if(strpos($htaccess, 'RewriteRule') !== false) {
+
+			$https = $config->https ? 'https' : 'http';
+
+			if(preg_match_all('/\sRewriteRule\s(.*?)\s(.*?)\s\[.*?R=(\d{3})\]/', $htaccess, $matches)) {
+
+				foreach($matches[0] as $index => $match) {
+
+					$path = rtrim(ltrim($matches[1][$index], '^'), '$');
+					if(substr($path, 0, 1) !== '/') {
+						$path = "/$path";
+					}
+
+					$url = $matches[2][$index];
+					// We only want rules that redirect to a httpHost url
+					$hasHttpHost = false;
+					foreach($config->httpHosts as $httpHost) {
+						if(strpos($url, $httpHost) !== false) {
+							$hasHttpHost = true;
+						}
+					}
+					if(!$hasHttpHost) continue;
+
+					$this->redirectsHtaccess[] = [
+						$path,
+						str_replace(array_map(function($httpHost) use ($https) {
+							return "$https://$httpHost";
+						}, $config->httpHosts), '', $url),
+						$matches[3][$index],
+					];
+				}
+			}
+		}
 	}
 
 	/**
@@ -52,21 +152,18 @@ class ProcessPageRedirects extends Process {
 	 */
 	public function execute() {
 
-		$config = $this->wire()->config;
-		$database = $this->wire()->database;
 		$modules = $this->wire()->modules;
 		$pages = $this->wire()->pages;
 
 		$modules->get('JqueryWireTabs');
 		$id = $this->className;
-		$hasLanguagePageNames = $modules->isInstalled('LanguageSupportPageNames');
 
 		$this->headline($this->_('Page Redirects'));
 
 		// Headers
 		$defaultHeaders = [
-			$this->_('Redirect Path'),
-			$this->_('Destination'),
+			$this->headers[0],
+			$this->headers[1],
 		];
 
 		$_test = function($url) {
@@ -74,8 +171,8 @@ class ProcessPageRedirects extends Process {
 			return "<a href=$url target=_blank title='$label'>$url</a>";
 		};
 
-		$tabs = $this->wire(new InputfieldForm());
-		$tabs->attr('id', $id);
+		$form = $this->wire(new InputfieldForm());
+		$form->attr('id', $id);
 
 		foreach([
 			'site' => $this->_('Site'),
@@ -87,36 +184,32 @@ class ProcessPageRedirects extends Process {
 			switch($key) {
 				case 'site':
 
-					if($modules->isInstalled('PagePathHistory')) {
+					if(count($this->redirectsSite)) {
 
-						if($hasLanguagePageNames) {
-							$headers[] = $this->_('Language');
+						if($this->hasLanguagePageNames) {
+							$headers[] = $this->headers[2];
 						}
 
-						$headers[] = $this->_('Created');
+						$headers[] = $this->headers[3];
 
-						$query = $database->query("SELECT * FROM `page_path_history` ORDER BY `created` DESC");
-						foreach($query->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-
-							$page = $pages->get($row['pages_id']);
-							if(!$page->id || !$page->viewable() || $page->isTrash()) continue;
+						foreach($this->redirectsSite as $row) {
 
 							$tr = [
-								$_test($row['path']),
-								"<a href=$page->editURL#ProcessPageEditSettings target=_blank title='{$this->_('Edit this page')}'>$page->url</a>",
+								$_test($row[0]),
+								"<a href={$row[2]}#ProcessPageEditSettings target=_blank title='{$this->_('Edit this page')}'>{$row[1]}</a>",
 							];
 
-							if($hasLanguagePageNames) {
+							if($this->hasLanguagePageNames) {
 								$languages = $this->wire()->languages;
-								$tr[] = ($row['language_id'] ?
-									$languages->get($row['language_id']) :
+								$tr[] = ($row[3] ?
+									$languages->get($row[3]) :
 									$languages->getDefault()
 								)->title;
 							}
 
-							$ts = $row['created'];
+							$ts = $row[4];
 							$dt = strtotime($ts);
-							$tr[] = "<span hidden>{$dt}</span><span data-uk-tooltip='title:{$ts}'>{$this->wire()->datetime->relativeTimeStr($row['created'])}</span>";
+							$tr[] = "<span hidden>{$dt}</span><span data-uk-tooltip='title:{$ts}'>{$this->wire()->datetime->relativeTimeStr($dt)}</span>";
 
 							$rows[] = $tr;
 						}
@@ -125,39 +218,16 @@ class ProcessPageRedirects extends Process {
 					break;
 				case 'htaccess':
 
-					$htaccess = file_get_contents($config->paths->root . '.htaccess');
-					if(strpos($htaccess, 'RewriteRule') !== false) {
+					if(count($this->redirectsHtaccess)) {
 
-						$headers[] = $this->_('Type');
-						$https = $config->https ? 'https' : 'http';
+						$headers[] = $this->headers[4];
 
-						if(preg_match_all('/\sRewriteRule\s(.*?)\s(.*?)\s\[.*?R=(\d{3})\]/', $htaccess, $matches)) {
-
-							foreach($matches[0] as $index => $match) {
-
-								$path = rtrim(ltrim($matches[1][$index], '^'), '$');
-								if(substr($path, 0, 1) !== '/') {
-									$path = "/$path";
-								}
-
-								$url = $matches[2][$index];
-								// We only want rules that redirect to a httpHost url
-								$hasHttpHost = false;
-								foreach($config->httpHosts as $httpHost) {
-									if(strpos($url, $httpHost) !== false) {
-										$hasHttpHost = true;
-									}
-								}
-								if(!$hasHttpHost) continue;
-
-								$rows[] = [
-									$_test($path),
-									str_replace(array_map(function($httpHost) use ($https) {
-										return "$https://$httpHost";
-									}, $config->httpHosts), '', $url),
-									$matches[3][$index],
-								];
-							}
+						foreach($this->redirectsHtaccess as $row) {
+							$rows[] = [
+								$_test($row[0]),
+								$row[1],
+								$row[2],
+							];
 						}
 					}
 
@@ -193,6 +263,22 @@ class ProcessPageRedirects extends Process {
 				'label' => $this->_('Filter Redirects'),
 				'placeholder' => $this->_('Start typing to filter the redirects'),
 				'class' => "$id-filter",
+				'columnWidth' => 80,
+			]);
+
+			$button = $modules->get('InputfieldButton')
+				->attr('name+id', "{$id}_export_{$key}")
+				->set('icon', 'download')
+				->set('value', $this->_('Download CSV'))
+				->set('href', "export?type=$key")
+				->attr('target', '_blank');
+
+			$tab->add([
+				'type' => 'markup',
+				'name' => "{$id}_{$type}_count",
+				'label' => $this->_('Export'),
+				'value' => $button->render(),
+				'columnWidth' => 20,
 			]);
 
 			$tab->add([
@@ -201,10 +287,113 @@ class ProcessPageRedirects extends Process {
 				'value' => $out,
 			]);
 
-			$tabs->add($tab);
+			$form->add($tab);
 		}
 
-		return $tabs->render();
+		return $form->render();
+	}
+
+	/**
+	 * Execute ProcessDownloads Export
+	 *
+	 * @return string
+	 * @throws WireException
+	 *
+	 */
+	public function executeExport() {
+
+		$sanitizer = $this->wire()->sanitizer;
+
+		$df = 'Y-m-d H:i:s';
+
+		$type = $this->wire()->input->get->pageName('type');
+		if(!in_array($type, ['site', 'htaccess'])) {
+			throw new WireException("Invalid export type: $type");
+		}
+
+		$data = $this->{'redirects' . ucfirst($type)};
+
+		$headers = [
+			$this->headers[0],
+			$this->headers[1],
+		];
+
+		$rows = [];
+		switch($type) {
+			case 'site':
+
+				if($this->hasLanguagePageNames) {
+					$headers[] = $this->headers[2];
+				}
+
+				$headers[] = $this->headers[3];
+
+				foreach($data as $row) {
+
+					$tr = [
+						$row[0],
+						$row[1],
+					];
+
+					if($this->hasLanguagePageNames) {
+						$languages = $this->wire()->languages;
+						$tr[] = ($row[3] ?
+							$languages->get($row[3]) :
+							$languages->getDefault()
+						)->title;
+					}
+
+					$tr[] = $row[4];
+
+					$rows[] = $tr;
+				}
+
+
+				break;
+			case 'htaccess':
+
+				$headers[] = $this->headers[4];
+
+				foreach($data as $row) {
+					$rows[] = [
+						$row[0],
+						$row[1],
+						$row[2],
+					];
+				}
+
+				break;
+		}
+
+		ob_start();
+		$file = fopen('php://output', 'w');
+		fputcsv($file, $headers);
+		if(count($rows)) {
+			foreach($rows as $row) {
+				fputcsv($file, $row);
+			}
+		}
+		fclose($file);
+		$csv = ob_get_clean();
+
+		// disable caching
+		$now = date($df);
+		header('Expires: Tue, 03 Jul 2001 06:00:00 GMT');
+		header('Cache-Control: max-age=0, no-cache, must-revalidate, proxy-revalidate');
+		header("Last-Modified: {$now} GMT");
+
+		// force download
+		header('Content-Type: application/force-download');
+		header('Content-Type: application/octet-stream');
+		header('Content-Type: application/download');
+
+		// disposition / encoding on response body
+
+		header('Content-Disposition: attachment;filename=' . $sanitizer->pageName($sanitizer->hyphenCase($this->className) . "-$type-$now") . '.csv');
+		header('Content-Transfer-Encoding: binary');
+		echo $csv;
+
+		die();
 	}
 
 	/**
