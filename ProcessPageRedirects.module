@@ -22,7 +22,7 @@ class ProcessPageRedirects extends Process {
 		return [
 			'title' => 'Process Page Redirects',
 			'summary' => 'Lists site redirects.',
-			'version' => 202,
+			'version' => 203,
 			'author' => 'Chris Thomson (NB Communication)',
 			'icon' => 'share',
 			'permission' => 'page-edit-redirects',
@@ -107,7 +107,11 @@ class ProcessPageRedirects extends Process {
 							];
 
 							if($hasLanguagePageNames) {
-								$tr[] = $this->wire()->languages->get($row['language_id'])->title;
+								$languages = $this->wire()->languages;
+								$tr[] = ($row['language_id'] ?
+									$languages->get($row['language_id']) :
+									$languages->getDefault()
+								)->title;
 							}
 
 							$ts = $row['created'];
