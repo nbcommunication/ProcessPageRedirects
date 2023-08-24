@@ -22,7 +22,7 @@ class ProcessPageRedirects extends Process {
 		return [
 			'title' => 'Process Page Redirects',
 			'summary' => 'Lists site redirects.',
-			'version' => 200,
+			'version' => 201,
 			'author' => 'Chris Thomson (NB Communication)',
 			'icon' => 'share',
 			'permission' => 'page-edit-redirects',
@@ -139,11 +139,13 @@ class ProcessPageRedirects extends Process {
 
 								$url = $matches[2][$index];
 								// We only want rules that redirect to a httpHost url
+								$hasHttpHost = false;
 								foreach($config->httpHosts as $httpHost) {
-									if(strpos($url, $httpHost) === false) {
-										continue;
+									if(strpos($url, $httpHost) !== false) {
+										$hasHttpHost = true;
 									}
 								}
+								if(!$hasHttpHost) continue;
 
 								$rows[] = [
 									$_test($path),
