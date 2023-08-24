@@ -7,6 +7,9 @@
  *
  * @copyright 2023 NB Communication Ltd
  *
+ * @todo See if htaccess can be parsed to produce a list of those redirects too
+ * @todo Add a simple text filter to the table
+ *
  */
 
 class ProcessPageRedirects extends ProcessPageEdit {
