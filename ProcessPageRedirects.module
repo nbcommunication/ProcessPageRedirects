@@ -22,7 +22,7 @@ class ProcessPageRedirects extends Process {
 		return [
 			'title' => 'Process Page Redirects',
 			'summary' => 'Lists site redirects.',
-			'version' => 204,
+			'version' => 205,
 			'author' => 'Chris Thomson (NB Communication)',
 			'icon' => 'share',
 			'permission' => 'page-edit-redirects',
@@ -107,8 +107,9 @@ class ProcessPageRedirects extends Process {
 			}
 		}
 
-		$htaccess = file_get_contents($config->paths->root . '.htaccess');
-		if(strpos($htaccess, 'RewriteRule') !== false) {
+		$htaccessFile = $config->paths->root . '.htaccess';
+		$htaccess = is_file($htaccessFile) ? file_get_contents($htaccessFile) : '';
+		if($htaccess !== '' && strpos($htaccess, 'RewriteRule') !== false) {
 
 			$https = $config->https ? 'https' : 'http';
 
@@ -154,6 +155,7 @@ class ProcessPageRedirects extends Process {
 
 		$modules = $this->wire()->modules;
 		$pages = $this->wire()->pages;
+		$sanitizer = $this->wire()->sanitizer;
 
 		$modules->get('JqueryWireTabs');
 		$id = $this->className;
@@ -167,8 +169,10 @@ class ProcessPageRedirects extends Process {
 		];
 
 		$_test = function($url) {
+			$sanitizer = $this->wire()->sanitizer;
 			$label = $this->_('Test this redirect');
-			return "<a href=$url target=_blank title='$label'>$url</a>";
+			$urlOut = $sanitizer->entities($url);
+			return "<a href='$urlOut' target=_blank title='$label'>$urlOut</a>";
 		};
 
 		$form = $this->wire(new InputfieldForm());
@@ -225,7 +229,7 @@ class ProcessPageRedirects extends Process {
 						foreach($this->redirectsHtaccess as $row) {
 							$rows[] = [
 								$_test($row[0]),
-								$row[1],
+								$sanitizer->entities($row[1]),
 								$row[2],
 							];
 						}
@@ -304,8 +308,6 @@ class ProcessPageRedirects extends Process {
 
 		$sanitizer = $this->wire()->sanitizer;
 
-		$df = 'Y-m-d H:i:s';
-
 		$type = $this->wire()->input->get->pageName('type');
 		if(!in_array($type, ['site', 'htaccess'])) {
 			throw new WireException("Invalid export type: $type");
@@ -377,19 +379,17 @@ class ProcessPageRedirects extends Process {
 		$csv = ob_get_clean();
 
 		// disable caching
-		$now = date($df);
 		header('Expires: Tue, 03 Jul 2001 06:00:00 GMT');
 		header('Cache-Control: max-age=0, no-cache, must-revalidate, proxy-revalidate');
-		header("Last-Modified: {$now} GMT");
+		header('Last-Modified: ' . gmdate('D, d M Y H:i:s') . ' GMT');
 
 		// force download
-		header('Content-Type: application/force-download');
 		header('Content-Type: application/octet-stream');
-		header('Content-Type: application/download');
 
 		// disposition / encoding on response body
 
-		header('Content-Disposition: attachment;filename=' . $sanitizer->pageName($sanitizer->hyphenCase($this->className) . "-$type-$now") . '.csv');
+		$filename = $sanitizer->pageName($sanitizer->hyphenCase($this->className) . "-$type-" . gmdate('Ymd-His')) . '.csv';
+		header("Content-Disposition: attachment;filename=\"$filename\"");
 		header('Content-Transfer-Encoding: binary');
 		echo $csv;
 
